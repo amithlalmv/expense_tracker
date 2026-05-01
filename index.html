@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoneyLog — Daily Expense Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --surface: #161920;
+    --surface2: #1e2230;
+    --border: #2a2f3e;
+    --accent: #00e5a0;
+    --accent2: #7c6af7;
+    --accent3: #f7a26a;
+    --danger: #ff5c6a;
+    --text: #e8ecf5;
+    --muted: #7a8099;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Mono', monospace; min-height: 100vh; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.4rem; letter-spacing: -1px; }
+  .logo span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .date-badge { font-size: 0.72rem; color: var(--muted); background: var(--surface2); padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); }
+  .sync-status { font-size: 0.65rem; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); display: flex; align-items: center; gap: 6px; transition: all 0.3s; }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
+  .sync-status.synced { border-color: var(--accent); color: var(--accent); }
+  .sync-status.synced .sync-dot { background: var(--accent); }
+  .sync-status.syncing { border-color: var(--accent3); color: var(--accent3); }
+  .sync-status.syncing .sync-dot { background: var(--accent3); animation: pulse 1s infinite; }
+  .sync-status.error { border-color: var(--danger); color: var(--danger); }
+  .sync-status.error .sync-dot { background: var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px; }
+
+  .accounts-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+  .account-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px 22px 18px; position: relative; overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .account-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .account-card:nth-child(1)::before { background: var(--accent); }
+  .account-card:nth-child(2)::before { background: var(--accent2); }
+  .account-card:nth-child(3)::before { background: var(--accent3); }
+  .account-card:hover { transform: translateY(-2px); border-color: rgba(0,229,160,0.3); }
+  .acct-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 6px; }
+  .acct-name { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; margin-bottom: 14px; }
+  .acct-balance { font-size: 1.7rem; font-weight: 500; letter-spacing: -1px; }
+  .acct-balance .currency { font-size: 0.9rem; color: var(--muted); margin-right: 2px; }
+  .acct-card-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .btn-small {
+    font-family: 'DM Mono', monospace; font-size: 0.62rem; padding: 5px 12px;
+    border-radius: 6px; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .btn-small:hover { border-color: var(--accent); color: var(--accent); }
+
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .stat-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; }
+  .stat-value { font-size: 1.3rem; font-weight: 500; }
+
+  .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 5px; margin-bottom: 24px; width: fit-content; }
+  .tab { font-family: 'DM Mono', monospace; font-size: 0.7rem; padding: 8px 20px; border-radius: 8px; border: none; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+  .tab.active { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; margin-bottom: 28px; }
+  .form-card h3 { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; margin-bottom: 20px; color: var(--accent); letter-spacing: -0.5px; }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+  .field input, .field select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.83rem;
+    padding: 10px 12px; outline: none; transition: border-color 0.15s; width: 100%;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field select option { background: var(--surface2); }
+  .btn-primary {
+    background: var(--accent); color: #0d0f14; border: none; border-radius: 8px;
+    font-family: 'DM Mono', monospace; font-weight: 500; font-size: 0.78rem;
+    padding: 11px 24px; cursor: pointer; transition: all 0.2s;
+    text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; align-self: end;
+  }
+  .btn-primary:hover { background: #00ffb3; transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .log-header h3 { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; }
+  .filter-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .filter-row select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.68rem; padding: 6px 10px; outline: none; }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 8px; font-family: 'DM Mono', monospace; font-size: 0.65rem; padding: 6px 14px; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+
+  .tx-table { width: 100%; border-collapse: collapse; }
+  .tx-table thead tr { border-bottom: 1px solid var(--border); }
+  .tx-table th { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); text-align: left; padding: 10px 14px; font-weight: 400; }
+  .tx-table td { padding: 13px 14px; font-size: 0.78rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .tx-table tr:last-child td { border-bottom: none; }
+  .tx-table tr:hover td { background: var(--surface2); }
+  .tx-table tbody { display: block; max-height: 400px; overflow-y: auto; }
+  .tx-table thead, .tx-table tbody tr { display: table; width: 100%; table-layout: fixed; }
+
+  .type-badge { font-size: 0.58rem; padding: 3px 9px; border-radius: 20px; text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
+  .type-expense { background: rgba(255,92,106,0.15); color: var(--danger); }
+  .type-income  { background: rgba(0,229,160,0.15); color: var(--accent); }
+  .type-transfer { background: rgba(124,106,247,0.15); color: var(--accent2); }
+  .type-add { background: rgba(247,162,106,0.15); color: var(--accent3); }
+  .amount-neg { color: var(--danger); }
+  .amount-pos { color: var(--accent); }
+  .amount-neutral { color: var(--accent2); }
+
+  .delete-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.85rem; padding: 2px 6px; border-radius: 4px; transition: color 0.15s; }
+  .delete-btn:hover { color: var(--danger); }
+
+  .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 0.8rem; }
+  .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+
+  /* MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 32px; width: 420px; max-width: 95vw; }
+  .modal h3 { font-family: 'Syne', sans-serif; font-size: 1.1rem; font-weight: 700; margin-bottom: 22px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 22px; justify-content: flex-end; }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; font-family: 'DM Mono', monospace; font-size: 0.75rem; padding: 9px 18px; cursor: pointer; }
+  .btn-ghost:hover { border-color: var(--text); color: var(--text); }
+
+  /* TOAST */
+  .toast { position: fixed; bottom: 28px; right: 28px; background: var(--surface2); border: 1px solid var(--accent); border-radius: 10px; padding: 12px 20px; font-size: 0.78rem; color: var(--accent); z-index: 300; transform: translateY(80px); opacity: 0; transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1); pointer-events: none; max-width: 320px; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  /* Loading overlay */
+  .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(13,15,20,0.85); z-index: 500; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+  .loading-overlay.show { display: flex; }
+  .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 0.8rem; color: var(--muted); }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  @media (max-width: 700px) {
+    .accounts-row { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: repeat(2,1fr); }
+    .form-grid { grid-template-columns: 1fr; }
+    header { padding: 14px 16px; }
+    main { padding: 20px 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Syncing with Google Sheets...</div>
+</div>
+
+<header>
+  <div class="logo">Money<span>Log</span></div>
+  <div class="header-right">
+    <div class="sync-status" id="syncStatus">
+      <div class="sync-dot"></div>
+      <span id="syncText">Not synced</span>
+    </div>
+    <div class="date-badge" id="dateBadge"></div>
+  </div>
+</header>
+
+<main>
+  <div class="accounts-row">
+    <div class="account-card">
+      <div class="acct-label">Account 1</div>
+      <div class="acct-name" id="name-0">SBI Bank</div>
+      <div class="acct-balance"><span class="currency">₹</span><span id="bal-0">0.00</span></div>
+      <div class="acct-card-actions">
+        <button class="btn-small" onclick="openAddMoney(0)">+ Add Money</button>
+        <button class="btn-small" onclick="openRename(0)">Rename</button>
+      </div>
+    </div>
+    <div class="account-card">
+      <div class="acct-label">Account 2</div>
+      <div class="acct-name" id="name-1">HDFC Bank</div>
+      <div class="acct-balance"><span class="currency">₹</span><span id="bal-1">0.00</span></div>
+      <div class="acct-card-actions">
+        <button class="btn-small" onclick="openAddMoney(1)">+ Add Money</button>
+        <button class="btn-small" onclick="openRename(1)">Rename</button>
+      </div>
+    </div>
+    <div class="account-card">
+      <div class="acct-label">Account 3</div>
+      <div class="acct-name" id="name-2">ICICI Bank</div>
+      <div class="acct-balance"><span class="currency">₹</span><span id="bal-2">0.00</span></div>
+      <div class="acct-card-actions">
+        <button class="btn-small" onclick="openAddMoney(2)">+ Add Money</button>
+        <button class="btn-small" onclick="openRename(2)">Rename</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Total Balance</div>
+      <div class="stat-value" id="totalBal" style="color:var(--accent)">₹0.00</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Today's Spend</div>
+      <div class="stat-value" id="todaySpend" style="color:var(--danger)">₹0.00</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">This Month</div>
+      <div class="stat-value" id="monthSpend" style="color:var(--accent3)">₹0.00</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Transactions</div>
+      <div class="stat-value" id="txCount" style="color:var(--accent2)">0</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('expense',this)">Log Expense</button>
+    <button class="tab" onclick="switchTab('transfer',this)">Transfer</button>
+    <button class="tab" onclick="switchTab('log',this)">History</button>
+  </div>
+
+  <!-- EXPENSE -->
+  <div class="panel active" id="panel-expense">
+    <div class="form-card">
+      <h3>// New Transaction</h3>
+      <div class="form-grid">
+        <div class="field"><label>Date</label><input type="date" id="exp-date"></div>
+        <div class="field">
+          <label>Account</label>
+          <select id="exp-account">
+            <option value="0">SBI Bank</option>
+            <option value="1">HDFC Bank</option>
+            <option value="2">ICICI Bank</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Category</label>
+          <select id="exp-category">
+            <option>Food & Dining</option><option>Transport</option><option>Shopping</option>
+            <option>Bills & Utilities</option><option>Health</option><option>Entertainment</option>
+            <option>Education</option><option>Groceries</option><option>Rent</option><option>Other</option>
+          </select>
+        </div>
+        <div class="field"><label>Amount (₹)</label><input type="number" id="exp-amount" placeholder="0.00" min="0" step="0.01"></div>
+        <div class="field"><label>Note</label><input type="text" id="exp-note" placeholder="What was it for?"></div>
+        <button class="btn-primary" id="expBtn" onclick="addExpense()">Log Expense</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRANSFER -->
+  <div class="panel" id="panel-transfer">
+    <div class="form-card">
+      <h3>// Transfer Between Accounts</h3>
+      <div class="form-grid">
+        <div class="field"><label>Date</label><input type="date" id="tr-date"></div>
+        <div class="field">
+          <label>From Account</label>
+          <select id="tr-from">
+            <option value="0">SBI Bank</option><option value="1">HDFC Bank</option><option value="2">ICICI Bank</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>To Account</label>
+          <select id="tr-to">
+            <option value="0">SBI Bank</option><option value="1">HDFC Bank</option><option value="2">ICICI Bank</option>
+          </select>
+        </div>
+        <div class="field"><label>Amount (₹)</label><input type="number" id="tr-amount" placeholder="0.00" min="0" step="0.01"></div>
+        <div class="field"><label>Note</label><input type="text" id="tr-note" placeholder="Optional note"></div>
+        <button class="btn-primary" id="trBtn" onclick="addTransfer()">Transfer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="panel" id="panel-log">
+    <div class="form-card" style="padding:20px 24px">
+      <div class="log-header">
+        <h3>// Transaction History</h3>
+        <div class="filter-row">
+          <select id="filterAccount" onchange="renderLog()">
+            <option value="all">All Accounts</option>
+            <option value="0">SBI Bank</option>
+            <option value="1">HDFC Bank</option>
+            <option value="2">ICICI Bank</option>
+          </select>
+          <select id="filterType" onchange="renderLog()">
+            <option value="all">All Types</option>
+            <option value="expense">Expense</option>
+            <option value="transfer">Transfer</option>
+            <option value="add">Added</option>
+          </select>
+          <button class="btn-danger" onclick="confirmClearAll()">Clear All</button>
+        </div>
+      </div>
+      <table class="tx-table">
+        <thead>
+          <tr>
+            <th style="width:90px">Date</th>
+            <th style="width:75px">Type</th>
+            <th>Account</th>
+            <th>Category / Note</th>
+            <th style="width:120px;text-align:right">Amount</th>
+            <th style="width:36px"></th>
+          </tr>
+        </thead>
+        <tbody id="txBody"></tbody>
+      </table>
+      <div id="emptyState" class="empty-state" style="display:none">
+        <div class="icon">📂</div>No transactions yet. Start logging!
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ADD MONEY MODAL -->
+<div class="modal-overlay" id="addMoneyModal">
+  <div class="modal">
+    <h3>Add Money to <span id="modalAcctName" style="color:var(--accent)"></span></h3>
+    <div class="field"><label>Amount (₹)</label><input type="number" id="modalAmount" placeholder="Enter amount" min="0" step="0.01"></div>
+    <div class="field" style="margin-top:14px"><label>Note (optional)</label><input type="text" id="modalNote" placeholder="Salary, gift, etc."></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('addMoneyModal')">Cancel</button>
+      <button class="btn-primary" onclick="confirmAddMoney()">Add Money</button>
+    </div>
+  </div>
+</div>
+
+<!-- RENAME MODAL -->
+<div class="modal-overlay" id="renameModal">
+  <div class="modal">
+    <h3>Rename Account</h3>
+    <div class="field"><label>Account Name</label><input type="text" id="renameInput" placeholder="Enter account name"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('renameModal')">Cancel</button>
+      <button class="btn-primary" onclick="confirmRename()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- CLEAR MODAL -->
+<div class="modal-overlay" id="clearModal">
+  <div class="modal">
+    <h3>⚠️ Clear All Data?</h3>
+    <p style="color:var(--muted);font-size:0.82rem;line-height:1.6">This will permanently delete all transactions and reset all account balances to zero. This also clears your Google Sheet.</p>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('clearModal')">Cancel</button>
+      <button class="btn-danger" onclick="clearAll()">Yes, Clear All</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── CONFIG ─────────────────────────────────────────────────────────────────
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbyi9l41DvR8IjdnvIekHjfMohohDfHjmgNPRlgd-xghmyV49z7UoExCSocLRJyIdcsQ/exec";
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let state = {
+  accounts: [
+    { name: 'SBI Bank', balance: 0 },
+    { name: 'HDFC Bank', balance: 0 },
+    { name: 'ICICI Bank', balance: 0 }
+  ],
+  transactions: []
+};
+let modalAcctIndex = null;
+let activeModal = null;
+let syncTimeout = null;
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+async function init() {
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('exp-date').value = today;
+  document.getElementById('tr-date').value = today;
+  document.getElementById('dateBadge').textContent = new Date().toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+
+  // Load from localStorage first (instant)
+  const local = localStorage.getItem('moneylog_state');
+  if (local) { try { state = JSON.parse(local); } catch(e){} }
+  render();
+
+  // Then sync from Google Sheets
+  await loadFromSheets();
+}
+
+// ── GOOGLE SHEETS SYNC ─────────────────────────────────────────────────────
+function setSyncStatus(status, text) {
+  const el = document.getElementById('syncStatus');
+  const tx = document.getElementById('syncText');
+  el.className = 'sync-status ' + status;
+  tx.textContent = text;
+}
+
+async function loadFromSheets() {
+  setSyncStatus('syncing', 'Loading...');
+  try {
+    const res = await fetch(SHEET_URL, { method: 'GET' });
+    const raw = await res.text();
+    const data = JSON.parse(raw);
+    if (data && (data.accounts || data.transactions)) {
+      state = data;
+      localStorage.setItem('moneylog_state', JSON.stringify(state));
+      render();
+      setSyncStatus('synced', 'Synced ✓');
+    } else {
+      setSyncStatus('synced', 'Ready');
+    }
+  } catch(e) {
+    setSyncStatus('error', 'Offline');
+    toast('Could not connect to Google Sheets. Working offline.', true);
+  }
+}
+
+async function saveToSheets() {
+  setSyncStatus('syncing', 'Saving...');
+  localStorage.setItem('moneylog_state', JSON.stringify(state));
+  try {
+    await fetch(SHEET_URL, {
+      method: 'POST',
+      body: JSON.stringify(state),
+      headers: { 'Content-Type': 'text/plain' }
+    });
+    setSyncStatus('synced', 'Saved ✓');
+  } catch(e) {
+    setSyncStatus('error', 'Save failed');
+    toast('Saved locally. Could not sync to Google Sheets.', true);
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(saveToSheets, 800);
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────────────
+function render() {
+  renderAccounts();
+  renderStats();
+  renderLog();
+  syncDropdowns();
+}
+
+function renderAccounts() {
+  state.accounts.forEach((acct, i) => {
+    document.getElementById(`name-${i}`).textContent = acct.name;
+    document.getElementById(`bal-${i}`).textContent = fmt(acct.balance);
+  });
+}
+
+function renderStats() {
+  const total = state.accounts.reduce((s, a) => s + a.balance, 0);
+  document.getElementById('totalBal').textContent = '₹' + fmt(total);
+  const today = new Date().toISOString().split('T')[0];
+  const thisMonth = today.slice(0, 7);
+  let todayAmt = 0, monthAmt = 0;
+  state.transactions.forEach(tx => {
+    if (tx.type === 'expense') {
+      if (tx.date === today) todayAmt += tx.amount;
+      if (tx.date.startsWith(thisMonth)) monthAmt += tx.amount;
+    }
+  });
+  document.getElementById('todaySpend').textContent = '₹' + fmt(todayAmt);
+  document.getElementById('monthSpend').textContent = '₹' + fmt(monthAmt);
+  document.getElementById('txCount').textContent = state.transactions.length;
+}
+
+function renderLog() {
+  const fAcct = document.getElementById('filterAccount').value;
+  const fType = document.getElementById('filterType').value;
+  const body = document.getElementById('txBody');
+  const empty = document.getElementById('emptyState');
+
+  let txs = state.transactions.map((tx, i) => ({ ...tx, realIdx: i })).reverse();
+  if (fAcct !== 'all') txs = txs.filter(tx => String(tx.account) === fAcct || String(tx.toAccount) === fAcct);
+  if (fType !== 'all') txs = txs.filter(tx => tx.type === fType);
+
+  if (txs.length === 0) { body.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  body.innerHTML = txs.map(tx => {
+    const acctName = tx.type === 'transfer'
+      ? `${state.accounts[tx.account]?.name || '?'} → ${state.accounts[tx.toAccount]?.name || '?'}`
+      : state.accounts[tx.account]?.name || '—';
+    const amtClass = tx.type === 'expense' ? 'amount-neg' : tx.type === 'add' ? 'amount-pos' : 'amount-neutral';
+    const amtSign = tx.type === 'expense' ? '-' : tx.type === 'add' ? '+' : '⇄';
+    const category = tx.category || tx.note || '—';
+    return `<tr>
+      <td>${tx.date}</td>
+      <td><span class="type-badge type-${tx.type}">${tx.type}</span></td>
+      <td style="font-size:0.73rem">${acctName}</td>
+      <td style="color:var(--muted);font-size:0.75rem">${category}${tx.note && tx.note !== tx.category ? ' — ' + tx.note : ''}</td>
+      <td style="text-align:right" class="${amtClass}">${amtSign}₹${fmt(tx.amount)}</td>
+      <td><button class="delete-btn" onclick="deleteTransaction(${tx.realIdx})">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function syncDropdowns() {
+  ['exp-account','tr-from','tr-to','filterAccount'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const val = sel.value;
+    Array.from(sel.options).forEach((opt, i) => {
+      if (i < 3 && state.accounts[i]) opt.text = state.accounts[i].name;
+    });
+    sel.value = val;
+  });
+}
+
+// ── TABS ───────────────────────────────────────────────────────────────────
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+
+// ── EXPENSE ────────────────────────────────────────────────────────────────
+function addExpense() {
+  const date = document.getElementById('exp-date').value;
+  const acctIdx = parseInt(document.getElementById('exp-account').value);
+  const category = document.getElementById('exp-category').value;
+  const amount = parseFloat(document.getElementById('exp-amount').value);
+  const note = document.getElementById('exp-note').value.trim();
+  if (!date || isNaN(amount) || amount <= 0) { toast('Please fill all required fields.', true); return; }
+  if (state.accounts[acctIdx].balance < amount) { toast('Insufficient balance in ' + state.accounts[acctIdx].name + '!', true); return; }
+  state.accounts[acctIdx].balance = round(state.accounts[acctIdx].balance - amount);
+  state.transactions.push({ type: 'expense', date, account: acctIdx, category, amount, note });
+  render(); scheduleSave();
+  document.getElementById('exp-amount').value = '';
+  document.getElementById('exp-note').value = '';
+  toast(`₹${fmt(amount)} logged as ${category}`);
+}
+
+// ── TRANSFER ───────────────────────────────────────────────────────────────
+function addTransfer() {
+  const date = document.getElementById('tr-date').value;
+  const from = parseInt(document.getElementById('tr-from').value);
+  const to = parseInt(document.getElementById('tr-to').value);
+  const amount = parseFloat(document.getElementById('tr-amount').value);
+  const note = document.getElementById('tr-note').value.trim();
+  if (!date || isNaN(amount) || amount <= 0) { toast('Please fill all required fields.', true); return; }
+  if (from === to) { toast('From and To accounts must be different.', true); return; }
+  if (state.accounts[from].balance < amount) { toast('Insufficient balance!', true); return; }
+  state.accounts[from].balance = round(state.accounts[from].balance - amount);
+  state.accounts[to].balance = round(state.accounts[to].balance + amount);
+  state.transactions.push({ type: 'transfer', date, account: from, toAccount: to, amount, note });
+  render(); scheduleSave();
+  document.getElementById('tr-amount').value = '';
+  document.getElementById('tr-note').value = '';
+  toast(`₹${fmt(amount)} transferred: ${state.accounts[from].name} → ${state.accounts[to].name}`);
+}
+
+// ── ADD MONEY ──────────────────────────────────────────────────────────────
+function openAddMoney(idx) {
+  modalAcctIndex = idx;
+  document.getElementById('modalAcctName').textContent = state.accounts[idx].name;
+  document.getElementById('modalAmount').value = '';
+  document.getElementById('modalNote').value = '';
+  openModal('addMoneyModal');
+}
+function confirmAddMoney() {
+  const amount = parseFloat(document.getElementById('modalAmount').value);
+  const note = document.getElementById('modalNote').value.trim() || 'Added money';
+  if (isNaN(amount) || amount <= 0) { toast('Enter a valid amount.', true); return; }
+  const today = new Date().toISOString().split('T')[0];
+  state.accounts[modalAcctIndex].balance = round(state.accounts[modalAcctIndex].balance + amount);
+  state.transactions.push({ type: 'add', date: today, account: modalAcctIndex, amount, note, category: note });
+  render(); scheduleSave();
+  closeModal('addMoneyModal');
+  toast(`₹${fmt(amount)} added to ${state.accounts[modalAcctIndex].name}!`);
+}
+
+// ── RENAME ─────────────────────────────────────────────────────────────────
+function openRename(idx) {
+  modalAcctIndex = idx;
+  document.getElementById('renameInput').value = state.accounts[idx].name;
+  openModal('renameModal');
+}
+function confirmRename() {
+  const name = document.getElementById('renameInput').value.trim();
+  if (!name) { toast('Name cannot be empty.', true); return; }
+  state.accounts[modalAcctIndex].name = name;
+  render(); scheduleSave();
+  closeModal('renameModal');
+  toast('Account renamed!');
+}
+
+// ── DELETE ─────────────────────────────────────────────────────────────────
+function deleteTransaction(idx) {
+  const tx = state.transactions[idx];
+  if (tx.type === 'expense') state.accounts[tx.account].balance = round(state.accounts[tx.account].balance + tx.amount);
+  else if (tx.type === 'add') state.accounts[tx.account].balance = round(state.accounts[tx.account].balance - tx.amount);
+  else if (tx.type === 'transfer') {
+    state.accounts[tx.account].balance = round(state.accounts[tx.account].balance + tx.amount);
+    state.accounts[tx.toAccount].balance = round(state.accounts[tx.toAccount].balance - tx.amount);
+  }
+  state.transactions.splice(idx, 1);
+  render(); scheduleSave();
+  toast('Transaction deleted.');
+}
+
+// ── CLEAR ──────────────────────────────────────────────────────────────────
+function confirmClearAll() { openModal('clearModal'); }
+async function clearAll() {
+  state.transactions = [];
+  state.accounts.forEach(a => a.balance = 0);
+  render(); closeModal('clearModal');
+  await saveToSheets();
+  toast('All data cleared.');
+}
+
+// ── MODAL ──────────────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); activeModal = id; }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); activeModal = null; }
+document.addEventListener('click', e => { if (activeModal && e.target.classList.contains('modal-overlay')) closeModal(activeModal); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && activeModal) closeModal(activeModal); });
+
+// ── TOAST ──────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = isError ? 'var(--danger)' : 'var(--accent)';
+  el.style.color = isError ? 'var(--danger)' : 'var(--accent)';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+function fmt(n) { return Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function round(n) { return Math.round(n * 100) / 100; }
+
+init();
+</script>
+</body>
+</html>
