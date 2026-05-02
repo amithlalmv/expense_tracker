@@ -18,8 +18,18 @@
   .logo span{color:var(--accent);}
   .header-right{display:flex;align-items:center;gap:12px;}
   .date-badge{font-size:0.72rem;color:var(--muted);background:var(--surface2);padding:5px 12px;border-radius:20px;border:1px solid var(--border);}
-  .save-badge{font-size:0.65rem;padding:5px 12px;border-radius:20px;border:1px solid var(--accent);color:var(--accent);display:flex;align-items:center;gap:6px;}
-  .save-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);}
+  .sync-pill{font-size:0.65rem;padding:5px 14px;border-radius:20px;border:1px solid var(--border);display:flex;align-items:center;gap:7px;transition:all 0.4s;cursor:default;}
+  .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:all 0.4s;}
+  .sync-pill.ready{border-color:var(--accent);color:var(--accent);}
+  .sync-pill.ready .sync-dot{background:var(--accent);}
+  .sync-pill.saving{border-color:var(--accent3);color:var(--accent3);}
+  .sync-pill.saving .sync-dot{background:var(--accent3);animation:blink 0.8s infinite;}
+  .sync-pill.error{border-color:var(--danger);color:var(--danger);}
+  .sync-pill.error .sync-dot{background:var(--danger);}
+  .sync-pill.loading{border-color:var(--accent2);color:var(--accent2);}
+  .sync-pill.loading .sync-dot{background:var(--accent2);animation:blink 0.8s infinite;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
+
   main{max-width:1100px;margin:0 auto;padding:32px 20px;}
   .accounts-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;}
   .account-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 22px 18px;position:relative;overflow:hidden;transition:transform 0.2s,border-color 0.2s;}
@@ -100,10 +110,14 @@
 </style>
 </head>
 <body>
+
 <header>
   <div class="logo">Money<span>Log</span></div>
   <div class="header-right">
-    <div class="save-badge"><div class="save-dot"></div><span id="saveText">Auto-saved</span></div>
+    <div class="sync-pill loading" id="syncPill">
+      <div class="sync-dot"></div>
+      <span id="syncText">Connecting...</span>
+    </div>
     <div class="date-badge" id="dateBadge"></div>
   </div>
 </header>
@@ -264,25 +278,110 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let state={accounts:[{name:'SBI Bank',balance:0},{name:'HDFC Bank',balance:0},{name:'ICICI Bank',balance:0}],transactions:[]};
-let modalAcctIndex=null,activeModal=null;
+// ── CONFIG ─────────────────────────────────────────────────────────────────
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyi9l41DvR8IjdnvIekHjfMohohDfHjmgNPRlgd-xghmyV49z7UoExCSocLRJyIdcsQ/exec";
 
-function init(){
-  const today=new Date().toISOString().split('T')[0];
-  document.getElementById('exp-date').value=today;
-  document.getElementById('tr-date').value=today;
-  document.getElementById('dateBadge').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-  try{const r=localStorage.getItem('moneylog_v2');if(r)state=JSON.parse(r);}catch(e){}
+// ── STATE ──────────────────────────────────────────────────────────────────
+let state = {
+  accounts:[{name:'SBI Bank',balance:0},{name:'HDFC Bank',balance:0},{name:'ICICI Bank',balance:0}],
+  transactions:[]
+};
+let modalAcctIndex=null, activeModal=null, saveTimer=null;
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+async function init() {
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('exp-date').value = today;
+  document.getElementById('tr-date').value = today;
+  document.getElementById('dateBadge').textContent = new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+
+  // Load local first for instant display
+  loadLocal();
   render();
+
+  // Then load from Google Sheets (cloud overrides local)
+  await loadFromSheets();
 }
 
-function save(){
-  localStorage.setItem('moneylog_v2',JSON.stringify(state));
-  const el=document.getElementById('saveText');
-  el.textContent='Saving...';
-  setTimeout(()=>el.textContent='Auto-saved ✓',500);
+// ── LOCAL STORAGE ──────────────────────────────────────────────────────────
+function loadLocal() {
+  try { const r=localStorage.getItem('moneylog_v2'); if(r) state=JSON.parse(r); } catch(e){}
+}
+function saveLocal() {
+  try { localStorage.setItem('moneylog_v2', JSON.stringify(state)); } catch(e){}
 }
 
+// ── GOOGLE SHEETS SYNC ─────────────────────────────────────────────────────
+async function loadFromSheets() {
+  setSyncStatus('loading','Loading...');
+  try {
+    // Use no-cors jsonp-style via script tag trick for GET
+    const data = await fetchFromSheet();
+    if (data && data.accounts) {
+      state = data;
+      saveLocal();
+      render();
+      setSyncStatus('ready','Synced ✓');
+    } else {
+      setSyncStatus('ready','Ready');
+    }
+  } catch(e) {
+    setSyncStatus('ready','Local only');
+    console.warn('Sheet load failed, using local data');
+  }
+}
+
+function fetchFromSheet() {
+  return new Promise((resolve, reject) => {
+    const callbackName = 'cb_' + Date.now();
+    const script = document.createElement('script');
+    const timeout = setTimeout(() => {
+      delete window[callbackName];
+      document.body.removeChild(script);
+      reject(new Error('timeout'));
+    }, 8000);
+
+    window[callbackName] = function(data) {
+      clearTimeout(timeout);
+      delete window[callbackName];
+      document.body.removeChild(script);
+      resolve(data);
+    };
+
+    script.src = SCRIPT_URL + '?callback=' + callbackName + '&t=' + Date.now();
+    script.onerror = () => { clearTimeout(timeout); delete window[callbackName]; reject(new Error('error')); };
+    document.body.appendChild(script);
+  });
+}
+
+async function saveToSheets() {
+  setSyncStatus('saving','Saving...');
+  saveLocal();
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify(state)
+    });
+    // no-cors means we can't read response, but it was sent
+    setSyncStatus('ready','Saved ✓');
+  } catch(e) {
+    setSyncStatus('ready','Saved locally');
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveToSheets, 1000);
+}
+
+function setSyncStatus(type, text) {
+  document.getElementById('syncPill').className = 'sync-pill ' + type;
+  document.getElementById('syncText').textContent = text;
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────────────
 function render(){renderAccounts();renderStats();renderLog();syncDropdowns();}
 
 function renderAccounts(){
@@ -298,9 +397,7 @@ function renderStats(){
   const today=new Date().toISOString().split('T')[0];
   const month=today.slice(0,7);
   let t=0,m=0;
-  state.transactions.forEach(tx=>{
-    if(tx.type==='expense'){if(tx.date===today)t+=tx.amount;if(tx.date.startsWith(month))m+=tx.amount;}
-  });
+  state.transactions.forEach(tx=>{if(tx.type==='expense'){if(tx.date===today)t+=tx.amount;if(tx.date.startsWith(month))m+=tx.amount;}});
   document.getElementById('todaySpend').textContent='₹'+fmt(t);
   document.getElementById('monthSpend').textContent='₹'+fmt(m);
   document.getElementById('txCount').textContent=state.transactions.length;
@@ -335,12 +432,14 @@ function syncDropdowns(){
   });
 }
 
+// ── TABS ───────────────────────────────────────────────────────────────────
 function switchTab(tab,btn){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');document.getElementById('panel-'+tab).classList.add('active');
 }
 
+// ── EXPENSE ────────────────────────────────────────────────────────────────
 function addExpense(){
   const date=document.getElementById('exp-date').value;
   const ai=parseInt(document.getElementById('exp-account').value);
@@ -351,12 +450,13 @@ function addExpense(){
   if(state.accounts[ai].balance<amt){toast('Insufficient balance in '+state.accounts[ai].name+'!',true);return;}
   state.accounts[ai].balance=round(state.accounts[ai].balance-amt);
   state.transactions.push({type:'expense',date,account:ai,category:cat,amount:amt,note});
-  render();save();
+  render();scheduleSave();
   document.getElementById('exp-amount').value='';
   document.getElementById('exp-note').value='';
   toast(`₹${fmt(amt)} logged under ${cat}`);
 }
 
+// ── TRANSFER ───────────────────────────────────────────────────────────────
 function addTransfer(){
   const date=document.getElementById('tr-date').value;
   const from=parseInt(document.getElementById('tr-from').value);
@@ -369,12 +469,13 @@ function addTransfer(){
   state.accounts[from].balance=round(state.accounts[from].balance-amt);
   state.accounts[to].balance=round(state.accounts[to].balance+amt);
   state.transactions.push({type:'transfer',date,account:from,toAccount:to,amount:amt,note});
-  render();save();
+  render();scheduleSave();
   document.getElementById('tr-amount').value='';
   document.getElementById('tr-note').value='';
   toast(`₹${fmt(amt)} transferred: ${state.accounts[from].name} → ${state.accounts[to].name}`);
 }
 
+// ── ADD MONEY ──────────────────────────────────────────────────────────────
 function openAddMoney(idx){modalAcctIndex=idx;document.getElementById('modalAcctName').textContent=state.accounts[idx].name;document.getElementById('modalAmount').value='';document.getElementById('modalNote').value='';openModal('addMoneyModal');}
 function confirmAddMoney(){
   const amt=parseFloat(document.getElementById('modalAmount').value);
@@ -383,28 +484,35 @@ function confirmAddMoney(){
   const today=new Date().toISOString().split('T')[0];
   state.accounts[modalAcctIndex].balance=round(state.accounts[modalAcctIndex].balance+amt);
   state.transactions.push({type:'add',date:today,account:modalAcctIndex,amount:amt,note,category:note});
-  render();save();closeModal('addMoneyModal');
+  render();scheduleSave();closeModal('addMoneyModal');
   toast(`₹${fmt(amt)} added to ${state.accounts[modalAcctIndex].name}!`);
 }
 
+// ── RENAME ─────────────────────────────────────────────────────────────────
 function openRename(idx){modalAcctIndex=idx;document.getElementById('renameInput').value=state.accounts[idx].name;openModal('renameModal');}
 function confirmRename(){
   const name=document.getElementById('renameInput').value.trim();
   if(!name){toast('Name cannot be empty.',true);return;}
-  state.accounts[modalAcctIndex].name=name;render();save();closeModal('renameModal');toast('Account renamed!');
+  state.accounts[modalAcctIndex].name=name;render();scheduleSave();closeModal('renameModal');toast('Account renamed!');
 }
 
+// ── DELETE ─────────────────────────────────────────────────────────────────
 function deleteTransaction(idx){
   const tx=state.transactions[idx];
   if(tx.type==='expense')state.accounts[tx.account].balance=round(state.accounts[tx.account].balance+tx.amount);
   else if(tx.type==='add')state.accounts[tx.account].balance=round(state.accounts[tx.account].balance-tx.amount);
   else if(tx.type==='transfer'){state.accounts[tx.account].balance=round(state.accounts[tx.account].balance+tx.amount);state.accounts[tx.toAccount].balance=round(state.accounts[tx.toAccount].balance-tx.amount);}
-  state.transactions.splice(idx,1);render();save();toast('Transaction deleted.');
+  state.transactions.splice(idx,1);render();scheduleSave();toast('Transaction deleted.');
 }
 
+// ── CLEAR ──────────────────────────────────────────────────────────────────
 function confirmClearAll(){openModal('clearModal');}
-function clearAll(){state.transactions=[];state.accounts.forEach(a=>a.balance=0);render();save();closeModal('clearModal');toast('All data cleared.');}
+function clearAll(){
+  state.transactions=[];state.accounts.forEach(a=>a.balance=0);
+  render();scheduleSave();closeModal('clearModal');toast('All data cleared.');
+}
 
+// ── EXPORT CSV ─────────────────────────────────────────────────────────────
 function exportCSV(){
   if(!state.transactions.length){toast('No transactions to export.',true);return;}
   const rows=[['Date','Type','Account','To Account','Category','Note','Amount (₹)']];
@@ -415,14 +523,16 @@ function exportCSV(){
   const blob=new Blob([csv],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`moneylog_${new Date().toISOString().split('T')[0]}.csv`;a.click();URL.revokeObjectURL(url);
-  toast('CSV exported successfully!');
+  toast('CSV exported!');
 }
 
+// ── MODALS ─────────────────────────────────────────────────────────────────
 function openModal(id){document.getElementById(id).classList.add('open');activeModal=id;}
 function closeModal(id){document.getElementById(id).classList.remove('open');activeModal=null;}
 document.addEventListener('click',e=>{if(activeModal&&e.target.classList.contains('modal-overlay'))closeModal(activeModal);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&activeModal)closeModal(activeModal);});
 
+// ── TOAST ──────────────────────────────────────────────────────────────────
 let toastTimer;
 function toast(msg,isError=false){
   const el=document.getElementById('toast');el.textContent=msg;
@@ -430,6 +540,8 @@ function toast(msg,isError=false){
   el.style.color=isError?'var(--danger)':'var(--accent)';
   el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3500);
 }
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
 function fmt(n){return Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function round(n){return Math.round(n*100)/100;}
 
